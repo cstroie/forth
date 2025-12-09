@@ -435,7 +435,7 @@ function init_interpreter() {
 	/*
 	 * Set interpreter style settings.
 	 */
-	 terminal.setAttribute("style", "width:100%;height:100%;position:absolute;left:0;right:0;top:0;bottom:0;background-color:black;color:green;font-size:20px;font-family:monospace;");
+	 terminal.setAttribute("style", "width:100%;height:100%;position:absolute;left:0;right:0;top:0;bottom:0;background-color:black;color:green;font-size:24px;font-family:monospace;");
 	 terminal.setAttribute("resize", "none");
 	 terminal.setAttribute("spellcheck", "false");
 	 terminal.focus();
