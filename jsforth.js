@@ -76,7 +76,9 @@ if (!String.prototype.trim) {
  \ncls - clears the screen \
  \ndebug - toggles console debug mode \
  \nsave - saves the current program to localStorage \
- \nload - loads a saved program from localStorage";
+ \nload - loads a saved program from localStorage \
+ \nlist - lists all saved programs \
+ \ndelete - deletes a saved program from localStorage";
 
 // Ignore potential Stack underflow errors if an operator is within a definition.
 var IN_DEFINITION = false;
@@ -95,6 +97,9 @@ var PICK_OUT_OF_BOUNDS = -3;
 var STACK_OVERFLOW = -4;
 var BAD_DEF_NAME = -5;
 var IF_EXPECTED_THEN = -6;
+var SAVE_ERROR = -7;
+var LOAD_ERROR_NO_PROGRAM = -8;
+var LOAD_ERROR_PARSE_FAILED = -9;
 
 // MESSAGES
 var FORTH_ERROR_GENERIC = "Forth Error.";
@@ -149,9 +154,19 @@ function interpret(input) {
 					FORTH_ALLOCATION = Number(main.pop());
 					return "Stack max reallocated: "+FORTH_ALLOCATION;
 				} else if (token == "save") {
-					return saveProgram();
+					var name = tokens[i+1];
+					if (name) i++; // Skip the name token
+					return saveProgram(name);
 				} else if (token == "load") {
-					return loadProgram();
+					var name = tokens[i+1];
+					if (name) i++; // Skip the name token
+					return loadProgram(name);
+				} else if (token == "list") {
+					return listPrograms();
+				} else if (token == "delete") {
+					var name = tokens[i+1];
+					if (name) i++; // Skip the name token
+					return deleteProgram(name);
 				} else if (token == ".s") {
 					printBuffer.push(main.join(" "));
                     continue;
@@ -441,14 +456,6 @@ function init_interpreter() {
 	/*
 	 * Set interpreter style settings.
 	 */
-	 // Set responsive font size based on screen width
-	 var fontSize = "2rem";
-	 if (window.innerWidth <= 480) {
-		 fontSize = "2.5rem";  // Larger font for phones
-	 } else if (window.innerWidth <= 768) {
-		 fontSize = "2.2rem";  // Medium font for tablets
-	 }
-	 
 	 terminal.focus();
 	 terminal.value = FORTH_TEXT;
 
@@ -457,28 +464,31 @@ function init_interpreter() {
 	 setKeyPressAction(terminal);
 	}
 
-	function saveProgram() {
+	function saveProgram(name) {
 		try {
+			name = name || 'default';
 			var programData = {
-				stack: main,
-				definitions: user_def,
-				timestamp: new Date().toISOString()
+				stack: main.slice(), // Copy the stack
+				definitions: Object.assign({}, user_def), // Copy definitions
+				timestamp: new Date().toISOString(),
+				name: name
 			};
-			localStorage.setItem('jsforth_program', JSON.stringify(programData));
-			return "Program saved to localStorage";
+			localStorage.setItem('jsforth_program_' + name, JSON.stringify(programData));
+			return "Program '" + name + "' saved to localStorage";
 		} catch (e) {
-			FORTH_ERROR = -7; // Custom error code for save error
+			FORTH_ERROR = SAVE_ERROR;
 			FORTH_ERROR_MESSAGE = "Failed to save program: " + e.message;
 			return;
 		}
 	}
 
-	function loadProgram() {
+	function loadProgram(name) {
 		try {
-			var savedData = localStorage.getItem('jsforth_program');
+			name = name || 'default';
+			var savedData = localStorage.getItem('jsforth_program_' + name);
 			if (!savedData) {
-				FORTH_ERROR = -8; // Custom error code for no saved program
-				FORTH_ERROR_MESSAGE = "No saved program found";
+				FORTH_ERROR = LOAD_ERROR_NO_PROGRAM;
+				FORTH_ERROR_MESSAGE = "No saved program found with name '" + name + "'";
 				return;
 			}
 			
@@ -486,10 +496,38 @@ function init_interpreter() {
 			main = programData.stack.slice(); // Copy the stack
 			user_def = Object.assign({}, programData.definitions); // Copy definitions
 			
-			return "Program loaded from localStorage (saved: " + programData.timestamp + ")";
+			return "Program '" + name + "' loaded from localStorage (saved: " + programData.timestamp + ")";
 		} catch (e) {
-			FORTH_ERROR = -9; // Custom error code for load error
+			FORTH_ERROR = LOAD_ERROR_PARSE_FAILED;
 			FORTH_ERROR_MESSAGE = "Failed to load program: " + e.message;
+			return;
+		}
+	}
+
+	function listPrograms() {
+		var programs = [];
+		for (var i = 0; i < localStorage.length; i++) {
+			var key = localStorage.key(i);
+			if (key.startsWith('jsforth_program_')) {
+				var name = key.replace('jsforth_program_', '');
+				programs.push(name);
+			}
+		}
+		if (programs.length === 0) {
+			return "No saved programs found";
+		}
+		return "Saved programs: " + programs.join(', ');
+	}
+
+	function deleteProgram(name) {
+		name = name || 'default';
+		var key = 'jsforth_program_' + name;
+		if (localStorage.getItem(key)) {
+			localStorage.removeItem(key);
+			return "Program '" + name + "' deleted from localStorage";
+		} else {
+			FORTH_ERROR = LOAD_ERROR_NO_PROGRAM;
+			FORTH_ERROR_MESSAGE = "No saved program found with name '" + name + "'";
 			return;
 		}
 	}
