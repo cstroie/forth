@@ -112,9 +112,9 @@ function valid_def_name(name)
 
 function interpret(input) {
 	terminal = window.terminal;
-	RECUR_COUNT++;
+	window.RECUR_COUNT++;
 	
-	if (RECUR_COUNT == FORTH_ALLOCATION)
+	if (window.RECUR_COUNT == FORTH_ALLOCATION)
 	{
 		FORTH_ERROR = STACK_OVERFLOW;
 		FORTH_ERROR_MESSAGE = "Stack Overflow. If this is generated incorrectly, the Stack can be reallocated. Default max recursion for a line of input is "+FORTH_DEFAULT_ALLOCATION+".";
@@ -443,9 +443,6 @@ function init_interpreter() {
 		 fontSize = "2.2rem";  // Medium font for tablets
 	 }
 	 
-	 terminal.setAttribute("style", "width:100%;height:100%;position:absolute;left:0;right:0;top:0;bottom:0;background-color:black;color:green;font-size:" + fontSize + ";font-family:monospace;");
-	 terminal.setAttribute("resize", "none");
-	 terminal.setAttribute("spellcheck", "false");
 	 terminal.focus();
 	 terminal.value = FORTH_TEXT;
 
