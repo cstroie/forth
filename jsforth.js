@@ -457,6 +457,43 @@ function init_interpreter() {
 	 setKeyPressAction(terminal);
 	}
 
+	function saveProgram() {
+		try {
+			var programData = {
+				stack: main,
+				definitions: user_def,
+				timestamp: new Date().toISOString()
+			};
+			localStorage.setItem('jsforth_program', JSON.stringify(programData));
+			return "Program saved to localStorage";
+		} catch (e) {
+			FORTH_ERROR = -7; // Custom error code for save error
+			FORTH_ERROR_MESSAGE = "Failed to save program: " + e.message;
+			return;
+		}
+	}
+
+	function loadProgram() {
+		try {
+			var savedData = localStorage.getItem('jsforth_program');
+			if (!savedData) {
+				FORTH_ERROR = -8; // Custom error code for no saved program
+				FORTH_ERROR_MESSAGE = "No saved program found";
+				return;
+			}
+			
+			var programData = JSON.parse(savedData);
+			main = programData.stack.slice(); // Copy the stack
+			user_def = Object.assign({}, programData.definitions); // Copy definitions
+			
+			return "Program loaded from localStorage (saved: " + programData.timestamp + ")";
+		} catch (e) {
+			FORTH_ERROR = -9; // Custom error code for load error
+			FORTH_ERROR_MESSAGE = "Failed to load program: " + e.message;
+			return;
+		}
+	}
+
 	function init_env() {
 		window.terminal = document.getElementById("interpreter");
 		window.main = [];
