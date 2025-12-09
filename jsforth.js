@@ -34,7 +34,7 @@ if (!String.prototype.trim) {
  var FORTH_FALSE = 0;
  var FORTH_TRUE = !FORTH_FALSE;
  var FORTH_DEBUG = false;
- var FORTH_HELP = "\For more documentation on the FORTH language, visit http://www.complang.tuwien.ac.at/forth/gforth/Docs-html/ \
+ var FORTH_HELP = "For more documentation on the FORTH language, visit http://www.complang.tuwien.ac.at/forth/gforth/Docs-html/ \
  \nFor a concise tutorial/introduction to FORTH, visit http://www.ece.cmu.edu/~koopman/forth/hopl.html \
  \nwww.forth.com is also a great resource. \
  \nPlease feel free to submit any bugs/comments/suggestions to me<at>eatonphil<dot>com \
@@ -224,7 +224,7 @@ function interpret(input) {
 						} else if (token == "^") {
 							first = Number(main.pop());
 							second = Number(main.pop());
-							main.push(pow(second, first));
+							main.push(Math.pow(second, first));
 						} else if (token == "swap") {
 							first = main.pop();
 							second = main.pop();
@@ -344,7 +344,7 @@ function interpret(input) {
 						}
 						else {
 							FORTH_ERROR = BAD_DEF_NAME;
-							FORT_ERROR_MESSAGE = "Definition must begin with a letter.";
+							FORTH_ERROR_MESSAGE = "Definition must begin with a letter.";
 						}
 						i++;
 					}
