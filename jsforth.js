@@ -74,7 +74,9 @@ if (!String.prototype.trim) {
  \nallocate - reallocates the max recursion for a single line of input \
  \n    ex: 10 allocate \
  \ncls - clears the screen \
- \ndebug - toggles console debug mode";
+ \ndebug - toggles console debug mode \
+ \nsave - saves the current program to localStorage \
+ \nload - loads a saved program from localStorage";
 
 // Ignore potential Stack underflow errors if an operator is within a definition.
 var IN_DEFINITION = false;
@@ -146,6 +148,10 @@ function interpret(input) {
 				} else if (token == "allocate") {
 					FORTH_ALLOCATION = Number(main.pop());
 					return "Stack max reallocated: "+FORTH_ALLOCATION;
+				} else if (token == "save") {
+					return saveProgram();
+				} else if (token == "load") {
+					return loadProgram();
 				} else if (token == ".s") {
 					printBuffer.push(main.join(" "));
                     continue;
