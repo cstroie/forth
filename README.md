@@ -60,6 +60,10 @@ How it behaves:
 - Every definition you make is kept in localStorage and replayed on your next visit. `cold` starts from scratch.
 - **SHARE** copies a link with your definitions packed into the address. Opening the link recreates those words in a fresh dictionary.
 
+## Install and offline use
+
+The page is a Progressive Web App. Your browser offers to install it (on a phone, use **Add to Home Screen**). After the first visit it also works offline: a service worker (`sw.js`) caches the app and refreshes it in the background, so updates appear on the next visit.
+
 ## Layout
 
 - `forth.js` holds the interpreter: outer interpreter, compiler, inner interpreter and the built-in words. It doesn't touch the DOM, so it can run in Node:

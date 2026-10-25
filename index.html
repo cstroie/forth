@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JSForth</title>
+    <meta name="theme-color" content="#0d0f0c">
+    <meta name="description" content="A small, mostly standard Forth in the browser.">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="apple-touch-icon" href="icons/icon-180.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Sans+Condensed:wght@400;600&display=swap" rel="stylesheet">
@@ -587,6 +592,11 @@
             flushScroll();
             cmd.focus();
         })();
+    </script>
+    <script>
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
+        }
     </script>
 </body>
 </html>
