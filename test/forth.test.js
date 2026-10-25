@@ -122,10 +122,10 @@ test("' and execute", () => {
 
 test('errors reset the stacks', () => {
     const f = make();
-    assert.match(run('1 2 foo', f), /foo \? undefined word/);
+    assert.match(run('1 2 foo', f), /Error: undefined word\n  1 2 >>>foo<<</);
     assert.equal(run('depth .', f), '0');
     assert.match(run('drop', f), /stack underflow/);
-    assert.match(run(': z 1 0 / ; z', f), /division by zero/);
+    assert.match(run(': z 1 0 / ; z', f), /division by zero in z/);
     assert.match(run(': deep recurse ; deep', f), /return stack overflow/);
 });
 
@@ -171,4 +171,95 @@ test('Towers of Hanoi makes 2^n - 1 moves', () => {
     run(EXAMPLES.hanoi.src.split('\n'), f);
     run('0 moves ! 5 1 3 2 hanoi', f);
     assert.equal(run('moves ?', f), '31');
+});
+
+test('immediate and postpone', () => {
+    const f = make();
+    run(': endif postpone then ; immediate', f);
+    run(': pos? 0> if ." yes" endif ;', f);
+    assert.equal(run('5 pos? -5 pos?', f), 'yes');
+    run(': twice, ( "name" -- ) postpone dup postpone + ; immediate', f);
+    assert.equal(run(': dbl twice, ; 21 dbl .', f), '42');
+});
+
+test('[ ] and literal compute at compile time', () => {
+    assert.equal(run(': k [ 6 7 * ] literal ; k .'), '42');
+});
+
+test('case of endof endcase', () => {
+    const f = make();
+    run(': name ( n -- ) case 1 of ." one" endof 2 of ." two" endof ." other" endcase ;', f);
+    assert.equal(run('1 name 2 name 9 name depth .', f), 'onetwoother0');
+});
+
+test('marker and forget', () => {
+    const f = make();
+    run([': a 1 ;', 'marker -work', ': b 2 ;', ': c 3 ;'], f);
+    run('-work', f);
+    assert.match(run('b', f), /undefined word/);
+    assert.equal(run('a .', f), '1');
+    run([': d 4 ;', ': e 5 ;', 'forget d'], f);
+    assert.match(run('e', f), /undefined word/);
+    assert.equal(run('a .', f), '1');
+});
+
+test('2variable, 2@, 2!', () => {
+    assert.equal(run('2variable p 3 4 p 2! p 2@ . .'), '4 3');
+});
+
+test('pictured numeric output', () => {
+    assert.equal(run('1234 0 <# # # char . hold #s #> type'), '12.34');
+    assert.equal(run(': .signed ( n -- ) dup abs 0 <# #s rot sign #> type ; -42 .signed'), '-42');
+    assert.equal(run('hex ff 0 <# #s #> type decimal'), 'FF');
+});
+
+test('key reads buffered and waiting keystrokes', () => {
+    const f = make();
+    f.provideKey(65);
+    assert.equal(run('key emit', f), 'A');
+    f.enter('key .');
+    assert.equal(f.runSlice(), 'key');
+    f.provideKey(66);
+    while (f.runSlice() === 'running');
+    assert.match(f.log, /66/);
+    assert.equal(run('key? .', f), '0');
+});
+
+test('accept reads a line into memory', () => {
+    const f = make();
+    run('create buf 20 allot', f);
+    f.enter('buf 20 accept buf swap type');
+    assert.equal(f.runSlice(), 'accept');
+    f.provideLine('hello');
+    while (f.runSlice() === 'running');
+    assert.match(f.log, /hello/);
+});
+
+test('ms pauses without blocking', () => {
+    const f = make();
+    f.enter('20 ms 7 .');
+    assert.equal(f.runSlice(), 'sleep');
+    const until = Date.now() + 30;
+    while (Date.now() < until);
+    while (f.runSlice() === 'running');
+    assert.match(f.log, /7/);
+});
+
+test('floating point', () => {
+    assert.equal(run('1.5 2.25 f+ f.'), '3.75');
+    assert.equal(run('2e0 fsqrt f.'), '1.4142135623731');
+    assert.equal(run('3 s>f 2 s>f f/ f.'), '1.5');
+    assert.equal(run('pi 2e0 f* f>s .'), '6');
+    assert.equal(run(': area ( r -- ) fdup f* pi f* ; 2.0 area f.'), '12.5663706143592');
+    assert.equal(run('fvariable x 2.5 x f! x f@ f.'), '2.5');
+    assert.equal(run('1.5e3 f.'), '1500.');
+    assert.match(run('fdrop'), /float stack underflow/);
+});
+
+test('interrupting a KEY wait', () => {
+    const f = make();
+    f.enter('key');
+    assert.equal(f.runSlice(), 'key');
+    f.interrupt();
+    assert.equal(f.state, 'idle');
 });

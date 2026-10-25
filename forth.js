@@ -31,8 +31,10 @@
         /** Reset everything: dictionary, memory, stacks. */
         cold() {
             this.stack = [];
+            this.fstack = [];
             this.rstack = [];
             this.frames = [];
+            this.keys = [];           // keystrokes waiting for KEY
             this.mem = [];
             this.here = 0;
             this.base = 10;
@@ -40,7 +42,10 @@
             this.xts = [];
             this.latest = null;
             this.compiling = null;    // word being compiled
+            this.paused = false;      // inside [ ... ] while compiling
             this.cs = [];             // compile-time control stack
+            this.version = 0;         // bumped whenever the dictionary changes
+            this.pic = '';            // pictured numeric output buffer
             this.queue = [];          // pending input lines
             this.src = '';
             this.pos = 0;
@@ -81,6 +86,28 @@
         }
 
         need(n) { if (this.stack.length < n) fail('stack underflow'); }
+
+        fpush(v) {
+            if (this.fstack.length >= MAX_STACK) fail('float stack overflow');
+            this.fstack.push(v);
+        }
+
+        fpop() {
+            if (!this.fstack.length) fail('float stack underflow');
+            return this.fstack.pop();
+        }
+
+        /** Double-cell number from the stack (lo hi), as a JS number. */
+        popD() {
+            const hi = this.pop(), lo = this.pop();
+            return hi * 4294967296 + (lo >>> 0);
+        }
+
+        pushD(v) {
+            const hi = Math.floor(v / 4294967296);
+            this.push((v - hi * 4294967296) | 0);
+            this.push(hi | 0);
+        }
 
         rpop() {
             if (!this.rstack.length) fail('return stack underflow');
@@ -128,6 +155,7 @@
             this.xts.push(w);
             this.dict.set(w.name, w);
             this.latest = w;
+            this.version++;
             return w;
         }
 
@@ -146,6 +174,8 @@
             if (this.pos >= s.length) return null;
             const start = this.pos;
             while (this.pos < s.length && !/\s/.test(s[this.pos])) this.pos++;
+            this.tokStart = start;
+            this.tokEnd = this.pos;
             return s.slice(start, this.pos);
         }
 
@@ -164,6 +194,19 @@
             const n = this.word();
             if (n === null) fail('name expected');
             return n;
+        }
+
+        /** Floats need a decimal point or exponent and only parse in base 10. */
+        parseFloatLiteral(tok) {
+            if (this.base !== 10 || !/^[-+]?(\d+\.\d*|\.\d+|\d+(\.\d*)?[eE][-+]?\d*)$/.test(tok)) return null;
+            const v = parseFloat(tok.replace(/[eE]$/, '').replace(/[eE]([-+])?$/, ''));
+            return isNaN(v) ? null : v;
+        }
+
+        fmtFloat(v) {
+            if (!isFinite(v)) return String(v);
+            if (Number.isInteger(v) && Math.abs(v) < 1e15) return v + '.';
+            return String(parseFloat(v.toPrecision(15)));
         }
 
         parseNumber(tok) {
@@ -207,7 +250,7 @@
             this.line = this.queue.shift();
             this.src = this.line.text;
             this.pos = 0;
-            this.lineDict = this.xts.length;
+            this.lineVersion = this.version;
             this.lineCompiling = !!this.compiling;
         }
 
@@ -220,7 +263,7 @@
                 this.compiling.start = 0;
             }
             // Remember lines that added words so SAVE / autosave can replay them
-            if (this.xts.length > this.lineDict || this.lineCompiling || this.compiling) {
+            if (this.version !== this.lineVersion || this.lineCompiling || this.compiling) {
                 this.defLines.push(line.text);
                 if (!this.compiling && this.onDefine) this.onDefine();
             }
@@ -233,6 +276,10 @@
 
         /** Run for up to `ms` milliseconds. Returns 'running' or 'idle'. */
         runSlice(ms = 15) {
+            if (this.state === 'sleep') {
+                if (Date.now() < this.wakeAt) return 'sleep';
+                this.state = 'running';
+            }
             const t0 = Date.now();
             let count = 0;
             try {
@@ -262,18 +309,29 @@
 
         /** Error recovery: report, then reset stacks and pending input. */
         abort(msg) {
-            const where = this.lastWord ? ` ${this.lastWord}` : '';
+            const inner = this.frames.length ? this.frames[this.frames.length - 1].w.name : null;
             if (this.column > 0) this.newline();
-            this.emit(`Error:${where ? where + ' ?' : ''} ${msg}`, 'err');
+            this.emit(`Error: ${msg}${inner ? ' in ' + inner : ''}`, 'err');
             this.newline();
+            // Point at the word on the input line that failed, gforth style
+            if (this.line && this.tokEnd > this.tokStart) {
+                const s = this.src;
+                const before = s.slice(Math.max(0, this.tokStart - 30), this.tokStart);
+                const after = s.slice(this.tokEnd, this.tokEnd + 30);
+                this.emit(`  ${before}>>>${s.slice(this.tokStart, this.tokEnd)}<<<${after}`.trimEnd(), 'err');
+                this.newline();
+            }
             this.reset();
         }
 
         reset() {
             this.stack = [];
+            this.fstack = [];
             this.rstack = [];
             this.frames = [];
             this.compiling = null;
+            this.paused = false;
+            this.pending = null;
             this.cs = [];
             this.queue = [];
             this.line = null;
@@ -291,9 +349,10 @@
 
         interpret(tok) {
             this.lastWord = tok;
+            const compileMode = this.compiling && !this.paused;
             const w = this.find(tok);
             if (w) {
-                if (this.compiling && !w.immediate) this.compiling.code.push({ op: 'call', w });
+                if (compileMode && !w.immediate) this.compiling.code.push({ op: 'call', w });
                 else {
                     if (w.compileOnly && !this.compiling) fail('compile-only word');
                     this.execute(w);
@@ -301,9 +360,36 @@
                 return;
             }
             const n = this.parseNumber(tok);
-            if (n === null) fail('undefined word');
-            if (this.compiling) this.compiling.code.push({ op: 'lit', v: n });
-            else this.push(n);
+            if (n !== null) {
+                if (compileMode) this.compiling.code.push({ op: 'lit', v: n });
+                else this.push(n);
+                return;
+            }
+            const f = this.parseFloatLiteral(tok);
+            if (f === null) fail('undefined word');
+            if (compileMode) this.compiling.code.push({ op: 'flit', v: f });
+            else this.fpush(f);
+        }
+
+        /** Deliver a keystroke (character code) for KEY / KEY?. */
+        provideKey(code) {
+            if (this.state === 'key') {
+                this.push(code);
+                this.state = 'running';
+            } else {
+                this.keys.push(code);
+            }
+        }
+
+        /** Deliver a typed line for ACCEPT. */
+        provideLine(text) {
+            if (this.state !== 'accept') return;
+            const { addr, max } = this.pending;
+            const s = text.slice(0, max);
+            for (let i = 0; i < s.length; i++) this.store(addr + i, s.charCodeAt(i));
+            this.pending = null;
+            this.push(s.length);
+            this.state = 'running';
         }
 
         execute(w) {
@@ -356,6 +442,13 @@
                     f.ip = c.to;
                     break;
                 case 'str': this.emit(c.s); break;
+                case 'flit': this.fpush(c.v); break;
+                case 'compile': this.code().push({ op: 'call', w: c.w }); break;
+                case 'of': {
+                    const v = this.pop();
+                    if (this.peek() === v) this.pop(); else f.ip = c.to;
+                    break;
+                }
                 case 'exit': this.frames.pop(); break;
                 case 'does':
                     if (!this.latest || this.latest.data === undefined) fail('DOES> needs CREATE');
@@ -602,6 +695,175 @@
             this.prim('(', function () { this.parseUntil(')'); }, { immediate: true });
             this.prim('\\', function () { this.pos = this.src.length; }, { immediate: true });
 
+            // compiler extensions
+            P('immediate', function () {
+                if (!this.latest || this.latest.builtin) fail('no word to make immediate');
+                this.latest.immediate = true;
+            });
+            I('postpone', function () {
+                const w = this.find(this.nameArg());
+                if (!w) fail('undefined word');
+                // Immediate words run when the new word runs; others get compiled then
+                this.code().push(w.immediate ? { op: 'call', w } : { op: 'compile', w });
+            });
+            I('[', function () { this.paused = true; });
+            P(']', function () {
+                if (!this.compiling) fail('] outside a definition');
+                this.paused = false;
+            });
+            P('compile,', function () {
+                const w = this.xts[this.pop()];
+                if (!w) fail('invalid execution token');
+                this.code().push({ op: 'call', w });
+            });
+
+            // case
+            I('case', function () { this.code(); this.cs.push({ type: 'case', exits: [] }); });
+            I('of', function () {
+                const c = { op: 'of', to: -1 };
+                this.code().push(c);
+                this.cs.push({ type: 'of', c });
+            });
+            I('endof', function () {
+                const of = this.csPop('of');
+                const kase = this.cs[this.cs.length - 1];
+                if (!kase || kase.type !== 'case') fail('unbalanced control structure');
+                const exit = { op: 'branch', to: -1 };
+                this.code().push(exit);
+                kase.exits.push(exit);
+                of.c.to = this.code().length;
+            });
+            I('endcase', function () {
+                const kase = this.csPop('case');
+                this.code().push({ op: 'call', w: this.find('drop') });
+                const end = this.code().length;
+                for (const e of kase.exits) e.to = end;
+            });
+
+            // dictionary management
+            P('marker', function () {
+                const snapshot = { dict: new Map(this.dict), xts: this.xts.length, here: this.here, latest: this.latest };
+                this.define(this.nameArg(), {
+                    prim() {
+                        this.dict = snapshot.dict;
+                        this.xts.length = snapshot.xts;
+                        this.here = snapshot.here;
+                        this.mem.length = snapshot.here;
+                        this.latest = snapshot.latest;
+                        this.version++;
+                    }
+                });
+            });
+            P('forget', function () {
+                const w = this.find(this.nameArg());
+                if (!w) fail('undefined word');
+                if (w.builtin) fail('cannot forget a built-in word');
+                this.xts.length = w.xt;
+                this.dict = new Map();
+                for (const x of this.xts) this.dict.set(x.name, x);
+                this.latest = this.xts[this.xts.length - 1];
+                this.version++;
+            });
+
+            // double cells
+            P('2variable', function () { this.define(this.nameArg(), { data: this.allot(2) }); });
+            P('2constant', function () {
+                const hi = this.pop(), lo = this.pop();
+                this.define(this.nameArg(), { prim() { this.push(lo); this.push(hi); } });
+            });
+            P('2!', function () { const a = this.pop(); this.store(a, this.pop()); this.store(a + 1, this.pop()); });
+            P('2@', function () { const a = this.pop(); this.push(this.fetch(a + 1)); this.push(this.fetch(a)); });
+            P('s>d', function () { const n = this.pop(); this.push(n); this.push(n < 0 ? -1 : 0); });
+            P('d.', function () { this.emit(this.popD().toString(this.base).toUpperCase() + ' '); });
+
+            // pictured numeric output
+            P('<#', function () { this.pic = ''; });
+            P('#', function () {
+                const d = this.popD();
+                if (d < 0) fail('# needs an unsigned number');
+                this.pic = (d % this.base).toString(this.base).toUpperCase() + this.pic;
+                this.pushD(Math.floor(d / this.base));
+            });
+            P('#s', function () {
+                let d = this.popD();
+                if (d < 0) fail('#S needs an unsigned number');
+                do {
+                    this.pic = (d % this.base).toString(this.base).toUpperCase() + this.pic;
+                    d = Math.floor(d / this.base);
+                } while (d > 0);
+                this.pushD(0);
+            });
+            P('hold', function () { this.pic = String.fromCharCode(this.pop()) + this.pic; });
+            P('sign', function () { if (this.pop() < 0) this.pic = '-' + this.pic; });
+            P('#>', function () {
+                this.popD();
+                if (this.picAddr === undefined) this.picAddr = this.allot(128);
+                const s = this.pic.slice(-128);
+                for (let i = 0; i < s.length; i++) this.mem[this.picAddr + i] = s.charCodeAt(i);
+                this.push(this.picAddr);
+                this.push(s.length);
+            });
+
+            // keyboard input and time
+            P('key', function () {
+                if (this.keys.length) this.push(this.keys.shift());
+                else this.state = 'key';
+            });
+            P('key?', function () { this.push(this.keys.length ? -1 : 0); });
+            P('accept', function () {
+                const max = this.pop(), addr = this.pop();
+                if (max < 0) fail('invalid length');
+                this.pending = { addr, max };
+                this.state = 'accept';
+            });
+            P('ms', function () {
+                const ms = this.pop();
+                if (ms > 0) { this.wakeAt = Date.now() + ms; this.state = 'sleep'; }
+            });
+
+            // floating point (separate float stack)
+            const F = (n, fn) => this.prim(n, fn);
+            const fbin = fn => function () { const b = this.fpop(), a = this.fpop(); this.fpush(fn(a, b)); };
+            const fun = fn => function () { this.fpush(fn(this.fpop())); };
+            F('f+', fbin((a, b) => a + b));
+            F('f-', fbin((a, b) => a - b));
+            F('f*', fbin((a, b) => a * b));
+            F('f/', fbin((a, b) => { if (b === 0) fail('division by zero'); return a / b; }));
+            F('f**', fbin(Math.pow));
+            F('fmin', fbin(Math.min));
+            F('fmax', fbin(Math.max));
+            F('fnegate', fun(a => -a));
+            F('fabs', fun(Math.abs));
+            F('fsqrt', fun(a => { if (a < 0) fail('invalid argument'); return Math.sqrt(a); }));
+            F('fsin', fun(Math.sin));
+            F('fcos', fun(Math.cos));
+            F('ftan', fun(Math.tan));
+            F('fatan', fun(Math.atan));
+            F('fexp', fun(Math.exp));
+            F('fln', fun(a => { if (a <= 0) fail('invalid argument'); return Math.log(a); }));
+            F('flog', fun(a => { if (a <= 0) fail('invalid argument'); return Math.log10(a); }));
+            F('floor', fun(Math.floor));
+            F('fround', fun(Math.round));
+            F('fdup', function () { const a = this.fpop(); this.fpush(a); this.fpush(a); });
+            F('fdrop', function () { this.fpop(); });
+            F('fswap', function () { const b = this.fpop(), a = this.fpop(); this.fpush(b); this.fpush(a); });
+            F('fover', function () { const b = this.fpop(), a = this.fpop(); this.fpush(a); this.fpush(b); this.fpush(a); });
+            F('frot', function () { const c = this.fpop(), b = this.fpop(), a = this.fpop(); this.fpush(b); this.fpush(c); this.fpush(a); });
+            F('fdepth', function () { this.push(this.fstack.length); });
+            F('s>f', function () { this.fpush(this.pop()); });
+            F('f>s', function () { this.push(Math.trunc(this.fpop()) | 0); });
+            F('f=', function () { const b = this.fpop(), a = this.fpop(); this.push(a === b ? -1 : 0); });
+            F('f<', function () { const b = this.fpop(), a = this.fpop(); this.push(a < b ? -1 : 0); });
+            F('f0=', function () { this.push(this.fpop() === 0 ? -1 : 0); });
+            F('f0<', function () { this.push(this.fpop() < 0 ? -1 : 0); });
+            F('f.', function () { this.emit(this.fmtFloat(this.fpop()) + ' '); });
+            F('f.s', function () { this.emit(`<${this.fstack.length}> ` + this.fstack.map(v => this.fmtFloat(v) + ' ').join('')); });
+            F('pi', function () { this.fpush(Math.PI); });
+            F('f@', function () { const v = this.fetch(this.pop()); this.fpush(typeof v === 'number' ? v : 0); });
+            F('f!', function () { const a = this.pop(); this.store(a, this.fpop()); });
+            F('fvariable', function () { this.define(this.nameArg(), { data: this.allot(1) }); });
+            F('fconstant', function () { const v = this.fpop(); this.define(this.nameArg(), { prim() { this.fpush(v); }, fconstant: v }); });
+
             // tools
             P('words', function () {
                 const names = [...this.dict.keys()].reverse();
@@ -616,6 +878,7 @@
                 if (this.column > 0) this.newline();
                 if (w.source) this.emit(w.source);
                 else if (w.constant !== undefined) this.emit(`${this.fmt(w.constant)} constant ${w.name}`);
+                else if (w.fconstant !== undefined) this.emit(`${this.fmtFloat(w.fconstant)} fconstant ${w.name}`);
                 else if (w.valueAddr !== undefined) this.emit(`value ${w.name}`);
                 else if (w.data !== undefined) this.emit(`create ${w.name}`);
                 else this.emit(`${w.name} is a built-in word`);
@@ -631,6 +894,7 @@
                     'WORDS lists every word, SEE <name> shows a definition.',
                     'SAVE <name> / LOAD <name> / FILES / DELETE <name> keep your',
                     'definitions in the browser. COLD resets everything.',
+                    'Floats: 1.5 2e0 f+ f.   Input: key accept   Pause: 500 ms',
                     'Esc interrupts a running word. Tab completes a word.'
                 ].forEach(l => { this.emit(l); this.newline(); });
             });
@@ -763,6 +1027,35 @@ variable count
 : fill-squares 10 0 do i i * i squares ! loop ;
 : .squares 10 0 do i squares @ . loop ;`,
             try: 'fill-squares .squares'
+        },
+        countdown: {
+            title: 'Countdown',
+            src: `\\ MS pauses without freezing the page
+: countdown ( n -- ) 0 swap do i . 300 ms -1 +loop ." Liftoff!" ;`,
+            try: '10 countdown'
+        },
+        floats: {
+            title: 'Floating point',
+            src: `\\ Floats live on their own stack
+: circle ( r -- ) fdup fdup f* pi f* ." area " f. 2e0 f* pi f* ." circumference " f. ;
+: hypot ( a b -- c ) fdup f* fswap fdup f* f+ fsqrt ;`,
+            try: '1.5 circle cr 3e0 4e0 hypot f.'
+        },
+        dice: {
+            title: 'CASE & KEY',
+            src: `\\ Roll dice until you press q
+: .face ( n -- ) case 1 of ." one" endof 2 of ." two" endof 3 of ." three" endof
+  4 of ." four" endof 5 of ." five" endof ." six" endcase ;
+: roll-dice ( -- ) cr ." Press any key to roll, q to quit" cr
+  begin key [char] q <> while 6 random 1+ .face space repeat ;`,
+            try: 'roll-dice'
+        },
+        format: {
+            title: 'Number formatting',
+            src: `\\ Pictured numeric output: show cents as dollars
+: .$ ( cents -- ) dup abs 0 <# # # [char] . hold #s [char] $ hold rot sign #> type ;
+: table ( -- ) 6 1 do i 1234 * dup . ." -> " .$ cr loop ;`,
+            try: 'table -999 .$'
         },
         hanoi: {
             title: 'Towers of Hanoi',

@@ -206,6 +206,14 @@
         #stack i { font-style: normal; color: var(--fg-faint); font-size: 16px; }
         #stack .empty { color: var(--fg-faint); border: 0; }
 
+        #fstack {
+            font-family: 'VT323', monospace;
+            font-size: 20px;
+            line-height: 1.2;
+            color: var(--fg);
+            white-space: pre;
+        }
+
         .examples { display: flex; flex-wrap: wrap; gap: 6px; }
 
         button {
@@ -268,6 +276,11 @@
                 <div id="stack"></div>
             </section>
 
+            <section class="panel" id="fpanel" hidden>
+                <h2>FLOAT STACK <span>top first</span></h2>
+                <div id="fstack"></div>
+            </section>
+
             <section class="panel">
                 <h2>EXAMPLES</h2>
                 <div class="examples" id="examples"></div>
@@ -293,6 +306,8 @@
                 <p><code>if else then</code> <code>do loop +loop i j leave</code> <code>begin until</code> <code>begin while repeat</code> <code>recurse exit</code></p>
                 <p><code>variable constant value to create allot , @ ! does&gt;</code></p>
                 <p><code>." text"</code> <code>s" text" type</code> <code>emit cr .r</code> <code>( comment )</code> <code>\ comment</code></p>
+                <p><code>case of endof endcase</code> <code>key accept ms</code> <code>immediate postpone</code> <code>marker forget</code></p>
+                <p>Floats: <code>1.5 2e0 f+ f. fsqrt pi s&gt;f f&gt;s</code></p>
                 <p><kbd>Tab</kbd> completes, <kbd>↑</kbd> <kbd>↓</kbd> history, <kbd>Esc</kbd> interrupts. Your definitions are kept between visits.</p>
             </section>
         </aside>
@@ -370,12 +385,18 @@
                     box.prepend(d);
                 }
                 $('base').textContent = { 10: 'DEC', 16: 'HEX', 2: 'BIN' }[forth.base] || 'BASE ' + forth.base;
-                const busy = forth.state === 'running';
-                term.classList.toggle('busy', busy);
-                $('prompt').textContent = forth.compiling ? ']' : '>';
-                cmd.placeholder = busy ? 'running… Esc to interrupt'
-                    : forth.compiling ? `compiling ${forth.compiling.name}… finish with ;`
-                    : 'type Forth here, e.g. 2 3 + .';
+                const st = forth.state;
+                term.classList.toggle('busy', st === 'running' || st === 'sleep');
+                $('prompt').textContent = st === 'accept' ? '?' : forth.compiling ? ']' : '>';
+                cmd.placeholder = {
+                    running: 'running… Esc to interrupt',
+                    sleep: 'running… Esc to interrupt',
+                    key: 'press a key… (Esc interrupts)',
+                    accept: 'type a line and press Enter'
+                }[st] || (forth.compiling ? `compiling ${forth.compiling.name}… finish with ;` : 'type Forth here, e.g. 2 3 + .');
+                const fs = forth.fstack;
+                $('fpanel').hidden = !fs.length;
+                $('fstack').textContent = fs.slice(-6).reverse().map(v => forth.fmtFloat(v)).join('\n');
             }
 
             // ---- execution ----
@@ -389,6 +410,7 @@
                     flushScroll();
                     renderStack();
                     if (state === 'running') setTimeout(step, 0);
+                    else if (state === 'sleep') setTimeout(step, Math.max(0, forth.wakeAt - Date.now()));
                     else pumping = false;
                 };
                 step();
@@ -406,7 +428,36 @@
             const history = [];
             let historyPos = 0;
 
+            /** Character code for KEY, or null for keys that don't produce one. */
+            function keyCode(e) {
+                if (e.ctrlKey || e.metaKey || e.altKey) return null;
+                if (e.key === 'Enter') return 13;
+                if (e.key === 'Backspace') return 8;
+                if (e.key === 'Tab') return 9;
+                return e.key.length === 1 ? e.key.charCodeAt(0) : null;
+            }
+
             cmd.addEventListener('keydown', e => {
+                // While a word is running, keystrokes go to KEY instead of the command line
+                if (forth.state === 'running' || forth.state === 'key' || forth.state === 'sleep') {
+                    const code = keyCode(e);
+                    if (code !== null) {
+                        e.preventDefault();
+                        forth.provideKey(code);
+                        pump();
+                        return;
+                    }
+                }
+                if (forth.state === 'accept' && e.key === 'Enter') {
+                    e.preventDefault();
+                    const text = cmd.value;
+                    cmd.value = '';
+                    forth.emit(text, 'in');
+                    forth.newline();
+                    forth.provideLine(text);
+                    pump();
+                    return;
+                }
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     const text = cmd.value;
@@ -425,7 +476,7 @@
                 } else if (e.key === 'Tab') {
                     e.preventDefault();
                     complete();
-                } else if (e.key.toLowerCase() === 'c' && e.ctrlKey && forth.state === 'running' && cmd.selectionStart === cmd.selectionEnd) {
+                } else if (e.key.toLowerCase() === 'c' && e.ctrlKey && forth.state !== 'idle' && cmd.selectionStart === cmd.selectionEnd) {
                     e.preventDefault();
                     stop();
                 }

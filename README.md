@@ -28,6 +28,10 @@ Type `help` for an overview, `words` to list every word, and `see name` to show 
 - GCD and LCM
 - variables
 - `CREATE … DOES>` arrays
+- a countdown using `ms`
+- floating point
+- dice rolling with `CASE` and `KEY`
+- number formatting with `<# #>`
 - Towers of Hanoi
 
 ## Words
@@ -38,9 +42,13 @@ Type `help` for an overview, `words` to list every word, and `see name` to show 
 | Arithmetic | `+ - * / mod /mod */ negate abs min max 1+ 1- 2* 2/ and or xor invert lshift rshift random` |
 | Comparison | `= <> < > <= >= 0= 0<> 0< 0> u< within true false` |
 | Output | `. u. .r .s ? emit cr space spaces type ." .( page` / `cls`, `decimal hex binary` |
-| Control | `if else then`, `do ?do loop +loop i j leave unloop`, `begin until again`, `begin while repeat`, `recurse exit` |
+| Control | `if else then`, `do ?do loop +loop i j leave unloop`, `begin until again`, `begin while repeat`, `case of endof endcase`, `recurse exit` |
 | Defining | `: ; variable constant value to create allot , c, does> ' ['] execute literal char [char]` |
-| Memory | `@ ! +! c@ c! here cells cell+ chars char+` |
+| Memory | `@ ! +! c@ c! 2@ 2! here cells cell+ chars char+ 2variable 2constant` |
+| Compiler | `immediate postpone [ ] literal compile, marker forget` |
+| Formatting | `<# # #s hold sign #>`, `s>d d.` |
+| Input and time | `key key? accept ms` |
+| Floating point | `f+ f- f* f/ f** fnegate fabs fsqrt fsin fcos ftan fatan fexp fln flog floor fround fmin fmax`, `fdup fdrop fswap fover frot fdepth`, `s>f f>s f= f< f0= f0< f. f.s pi f@ f! fvariable fconstant` |
 | Strings and comments | `." text"`, `s" text"`, `( comment )`, `\ comment` |
 | Tools | `words see help cold` |
 | Storage | `save name`, `load name`, `files`, `delete name` |
@@ -48,13 +56,15 @@ Type `help` for an overview, `words` to list every word, and `see name` to show 
 How it behaves:
 
 - Cells are 32-bit signed integers, and `true` is `-1`. `/` and `mod` round toward negative infinity (floored division).
+- Floating-point numbers live on a separate float stack. A number with a decimal point or an exponent (`1.5`, `2e0`) is a float.
 - Numbers are read in the current `base`. A prefix overrides it: `$FF` is hex, `#10` decimal, `%101` binary, and `'a'` is a character code.
 - Word names are case-insensitive.
 - Redefining a word doesn't change words already compiled with the old version.
-- On an error, the data and return stacks are cleared and any unfinished definition is discarded, as standard `ABORT` does.
+- On an error, the stacks are cleared and any unfinished definition is discarded, as standard `ABORT` does. The message points at the word that failed, for example `2 3 >>>foo<<<`.
 
 ## Browser features
 
+- `key` waits for a keystroke, `accept` reads a typed line, and `ms` pauses without freezing the page.
 - `Tab` completes word names. `↑`/`↓` scroll through history. `Esc` or `Ctrl+C` interrupts a runaway word: the interpreter runs in time slices, so `begin again` can't freeze the page.
 - Pasting several lines enters each one in turn.
 - Every definition you make is kept in localStorage and replayed on your next visit. `cold` starts from scratch.
