@@ -1,146 +1,81 @@
 # JSForth
 
-This is a micro-Forth implementation in Javascript. It is built around an HTML REPL.
+A small Forth that runs in the browser, close to the standard. Colon definitions are compiled, there's a real return stack and proper control flow, and the terminal shows the data stack live. There are no dependencies and no build step.
 
-I wrote this two years ago during a PL course in college. The code is not the greatest; it only took a few hours to throw together. That said, it is pretty neat.
+**Live demo: https://cstroie.github.io/forth/**
 
-# Try It Out
+![JSForth running the Star Pyramid example](docs/screenshot.png)
 
-A demonstration REPL is available via CodePen [here](http://codepen.io/eatonphil/full/YPbWVN/).
+## Quick start
 
-Alternatively, it can be run locally by navigating to the provided index.html file.
-
-# Built-in Commands
-
-```
-+ - / * ^ < > <= >= = != 
-    ex: a b + // displays: Stack: (a+b)  
-
-. - returns the top element of the Stack  
-    ex: a b . // displays: b; Stack: a  
-
-.s - displays the current Stack and the size  
-    ex: a b .s // displays: a b <2>; Stack: a b  
-
-.c - displays the top of the Stack as a character
-    ex: 0 97 .c // displays: a <ok>; Stack: 0 97
-
-drop - pops off the top element without returning it  
-    ex: a b drop // displays: nothing; Stack: a  
-
-pick - puts a copy of the nth element on the top of the Stack  
-    ex: a b c 2 pick // displays: nothing; Stack: a b c a  
-
-rot - rotates the Stack clockwise
-    ex: a b c rot // displays: nothing; Stack: b c a
-
--rot - rotates the Stack counter-clockwise
-    ex: a b c -rot // displays: nothing; Stack c a b
-
-swap - swaps the top two elements  
-    ex: a b // displays: nothing; Stack: b a  
-
-over - copies the second-to-last element to the top of the Stack  
-    ex: a b over // displays: nothing; Stack: a b a  
-
-dup - copies the top element  
-    ex: a b dup // displays: nothing; Stack: a b b  
-
-if ... then - executes what follows "if" if it evaluates true, continues on normally after optional "then"  
-    ex: a b > if c then d // displays: nothing; Stack: a b c d //if a > b; Stack: a b d //if a <= b  
-
-do ... [loop] - executes what is between "do" and "loop" or the end of the line  
-    ex: a b c do a + // displays: nothing; Stack: adds a to itself b times starting at c 
-
-invert - negates the top element of the Stack  
-    ex: a invert // displays: nothing; Stack: 0 //a != 0; Stack: 1 //a == 0  
-
-clear - empties the Stack  
-    ex: a b clear // displays: nothing; Stack:  
-
-: - creates a new custom (potentially recursive) definition  
-    ex: a b c : add2 + + ; add2 // displays: nothing; Stack: (a+b+c)  
-
-allocate - reallocates the max recursion for a single line of input  
-    ex: 10 allocate
-
-cls - clears the screen  
-
-debug - toggles console debug mode
+```forth
+2 3 + .                 \ 5
+: square ( n -- n*n ) dup * ;
+7 square .              \ 49
+: countdown ( n -- ) begin dup . 1- dup 0= until drop ;
+5 countdown             \ 5 4 3 2 1
 ```
 
-# Examples
+Type `help` for an overview, `words` to list every word, and `see name` to show a definition. The **Examples** panel loads ready-made programs:
 
-## Basics
+- Factorial
+- Fibonacci
+- FizzBuzz
+- a prime sieve
+- a star pyramid
+- GCD and LCM
+- variables
+- `CREATE … DOES>` arrays
+- Towers of Hanoi
 
-```
->>> 3 4 +
-    <ok>
->>> .s
-    7 <ok>
->>> 3 4 - .s
-    -1 <ok>
->>> 3 4 < .s
-    1 <ok>
->>> 3 4 > .s
-    0 <ok>
->>> 3 dup .s
-    3 3 <ok>
->>> = .s
-    1 <ok>
->>> drop
-    <ok>
->>> .s
-    <ok>
-```
+## Words
 
-## Conditions
+| Area | Words |
+|------|-------|
+| Stack | `dup drop swap over rot -rot nip tuck pick roll ?dup 2dup 2drop 2swap 2over depth clear >r r> r@` |
+| Arithmetic | `+ - * / mod /mod */ negate abs min max 1+ 1- 2* 2/ and or xor invert lshift rshift random` |
+| Comparison | `= <> < > <= >= 0= 0<> 0< 0> u< within true false` |
+| Output | `. u. .r .s ? emit cr space spaces type ." .( page` / `cls`, `decimal hex binary` |
+| Control | `if else then`, `do ?do loop +loop i j leave unloop`, `begin until again`, `begin while repeat`, `recurse exit` |
+| Defining | `: ; variable constant value to create allot , c, does> ' ['] execute literal char [char]` |
+| Memory | `@ ! +! c@ c! here cells cell+ chars char+` |
+| Strings and comments | `." text"`, `s" text"`, `( comment )`, `\ comment` |
+| Tools | `words see help cold` |
+| Storage | `save name`, `load name`, `files`, `delete name` |
 
-```
->>> 3 4 < if 11 then 12
-    <ok>
->>> .s
-    11 12 <ok>
->>> 3 4 > if 12 then 14 .s
-    14
-```
+How it behaves:
 
-## Functions
+- Cells are 32-bit signed integers, and `true` is `-1`. `/` and `mod` round toward negative infinity (floored division).
+- Numbers are read in the current `base`. A prefix overrides it: `$FF` is hex, `#10` decimal, `%101` binary, and `'a'` is a character code.
+- Word names are case-insensitive.
+- Redefining a word doesn't change words already compiled with the old version.
+- On an error, the data and return stacks are cleared and any unfinished definition is discarded, as standard `ABORT` does.
 
-```
->>> : plus + ;
-    <ok>
->>> 2 3 plus
-    5 <ok>
-```
+## Browser features
 
-## Loops
+- `Tab` completes word names. `↑`/`↓` scroll through history. `Esc` or `Ctrl+C` interrupts a runaway word: the interpreter runs in time slices, so `begin again` can't freeze the page.
+- Pasting several lines enters each one in turn.
+- Every definition you make is kept in localStorage and replayed on your next visit. `cold` starts from scratch.
 
-### Power Function
+## Layout
 
-```
->>> : pow over swap 1 do over * loop swap drop ;
-    <ok>
->>> 2 3 pow .s
-    8 <ok>
-```
+- `forth.js` holds the interpreter: outer interpreter, compiler, inner interpreter and the built-in words. It doesn't touch the DOM, so it can run in Node:
 
-## Recursion
+  ```js
+  const { Forth } = require('./forth.js');
+  const storage = { get: () => null, set: () => true, remove() {}, keys: () => [] };
+  const f = new Forth(text => process.stdout.write(text), storage);
+  f.enter(': sq dup * ; 12 sq .');
+  f.runSlice();          // prints "144  ok"
+  ```
+- `index.html` holds the terminal user interface.
 
-### Fibonacci
+## History
 
-```
->>> : fib dup 1 > if 1 - dup fib swap 1 - fib + then ;
-    <ok>
->>> 6 fib .s
-    8 <ok>
-```
+This started as a fork of [eatonphil/jsforth](https://github.com/eatonphil/jsforth) (2013–2015), a micro-Forth Phil Eaton wrote for a programming-languages course. Version 2 is a complete rewrite. The original passed words around as strings and re-interpreted them; this version compiles definitions into code, runs them on an inner interpreter, and uses standard Forth behaviour throughout.
 
-### Factorial
+Programs saved with the old `save` command can still be loaded with `load`.
 
-```
->>> : fac dup 1 > if dup 1 - fac * then dup 0 = if drop 1 then dup 1 = if drop 1 then ;
-    <ok>
->>> 3 fac
-    6 <ok>
-```
+## License
+
+[MIT](LICENSE.md). Original © Phil Eaton, rewrite © Costin Stroie.

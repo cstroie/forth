@@ -1,11 +1,516 @@
-<html>
-	<head>
-		<title>JSForth</title>
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<link rel="stylesheet" href="styles.css">
-		<script src="jsforth.js"></script>
-	</head>
-	<body>
-		<textarea id="interpreter"></textarea>
-	</body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSForth</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Sans+Condensed:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --page: #0d0f0c;
+            --panel: #151913;
+            --edge: #263022;
+            --fg: #9dff8a;
+            --fg-dim: #5f9c55;
+            --fg-faint: #34502f;
+            --glow: rgba(157, 255, 138, 0.35);
+            --in: #e9ffe4;
+            --err: #ff7a6b;
+            --accent: #ffcf5c;
+            --text: #c9d6c4;
+            --text-dim: #7d8c78;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { height: 100%; }
+
+        body {
+            background: radial-gradient(ellipse at 30% 0%, #172015, var(--page) 65%) fixed;
+            background-color: var(--page);
+            color: var(--text);
+            font-family: 'IBM Plex Sans Condensed', system-ui, sans-serif;
+            font-size: 14px;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 16px;
+            gap: 16px;
+        }
+
+        header {
+            max-width: 1180px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        h1 {
+            font-family: 'VT323', monospace;
+            font-weight: normal;
+            font-size: 40px;
+            line-height: 1;
+            color: var(--fg);
+            text-shadow: 0 0 12px var(--glow);
+            letter-spacing: 2px;
+        }
+
+        header p { color: var(--text-dim); }
+        header a { color: var(--text-dim); margin-left: auto; }
+
+        .layout {
+            flex: 1;
+            min-height: 0;
+            max-width: 1180px;
+            width: 100%;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 280px;
+            gap: 16px;
+        }
+
+        /* ---- terminal ---- */
+
+        .term {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 420px;
+            background: #050805;
+            border: 1px solid var(--edge);
+            border-radius: 10px;
+            box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            font-family: 'VT323', ui-monospace, monospace;
+            font-size: 22px;
+            line-height: 1.15;
+            color: var(--fg);
+            text-shadow: 0 0 6px var(--glow);
+            cursor: text;
+        }
+
+        .term::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+        }
+
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 16px 4px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            scrollbar-width: thin;
+            scrollbar-color: var(--fg-faint) transparent;
+        }
+
+        #output .in { color: var(--in); }
+        #output .ok { color: var(--fg-dim); }
+        #output .err { color: var(--err); text-shadow: 0 0 6px rgba(255, 122, 107, 0.4); }
+        #output .note { color: var(--accent); text-shadow: none; }
+
+        .prompt-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px 12px;
+        }
+
+        #prompt { color: var(--fg-dim); }
+        .busy #prompt { animation: blink 0.8s steps(1) infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        #cmd {
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            border: 0;
+            outline: 0;
+            font: inherit;
+            color: var(--in);
+            text-shadow: inherit;
+            caret-color: var(--fg);
+        }
+
+        #cmd::placeholder { color: var(--fg-faint); }
+
+        #hint {
+            min-height: 1.15em;
+            padding: 0 16px;
+            font-size: 18px;
+            color: var(--fg-faint);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ---- side panels ---- */
+
+        aside {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--edge);
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        .panel h2 {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .panel h2 span { color: var(--accent); letter-spacing: 1px; }
+
+        #stack {
+            font-family: 'VT323', monospace;
+            font-size: 22px;
+            line-height: 1.1;
+            color: var(--fg);
+            min-height: 1.1em;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        #stack div {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed var(--fg-faint);
+            padding: 2px 0;
+        }
+
+        #stack div:last-child:not(.empty) { color: var(--in); }
+        #stack i { font-style: normal; color: var(--fg-faint); font-size: 16px; }
+        #stack .empty { color: var(--fg-faint); border: 0; }
+
+        .examples { display: flex; flex-wrap: wrap; gap: 6px; }
+
+        button {
+            font: inherit;
+            font-size: 13px;
+            color: var(--text);
+            background: #1f271c;
+            border: 1px solid var(--edge);
+            border-radius: 6px;
+            padding: 5px 9px;
+            cursor: pointer;
+        }
+
+        button:hover { border-color: var(--fg-dim); color: var(--fg); }
+        button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+        .tools { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        .ref { font-size: 13px; line-height: 1.6; color: var(--text-dim); }
+        .ref code { font-family: 'VT323', monospace; font-size: 17px; color: var(--fg); }
+        .ref p { margin-bottom: 6px; }
+        kbd { font-family: inherit; color: var(--text); background: #1f271c; border-radius: 3px; padding: 0 4px; }
+
+        @media (max-width: 860px) {
+            html, body { height: auto; }
+            .layout { grid-template-columns: minmax(0, 1fr); }
+            .term { height: 70vh; }
+            aside { overflow: visible; }
+        }
+
+        @media (max-width: 480px) {
+            body { padding: 12px 10px; }
+            h1 { font-size: 32px; }
+            .term { font-size: 19px; }
+            #cmd { font-size: max(16px, 1em); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>JSFORTH</h1>
+        <p>A small, standard-flavoured Forth in your browser</p>
+        <a href="https://github.com/cstroie/forth">source</a>
+    </header>
+
+    <div class="layout">
+        <main class="term" id="term">
+            <div id="output" aria-live="polite"></div>
+            <div id="hint"></div>
+            <div class="prompt-line">
+                <span id="prompt">&gt;</span>
+                <input id="cmd" type="text" autocomplete="off" autocorrect="off" autocapitalize="off"
+                       spellcheck="false" aria-label="Forth input" placeholder="type Forth here, e.g. 2 3 + .">
+            </div>
+        </main>
+
+        <aside>
+            <section class="panel">
+                <h2>DATA STACK <span id="base">DEC</span></h2>
+                <div id="stack"></div>
+            </section>
+
+            <section class="panel">
+                <h2>EXAMPLES</h2>
+                <div class="examples" id="examples"></div>
+            </section>
+
+            <section class="panel">
+                <h2>TOOLS</h2>
+                <div class="tools">
+                    <button data-run="words">WORDS</button>
+                    <button data-run=".s">.S</button>
+                    <button data-run="clear">CLEAR</button>
+                    <button data-run="page">PAGE</button>
+                    <button data-run="help">HELP</button>
+                    <button id="stopBtn">STOP</button>
+                </div>
+            </section>
+
+            <section class="panel ref">
+                <h2>QUICK REFERENCE</h2>
+                <p>Numbers go on the stack; words take from it. <code>2 3 + .</code> prints 5.</p>
+                <p>Define words with <code>: name ... ;</code> and read them back with <code>see name</code>.</p>
+                <p><code>if else then</code> <code>do loop +loop i j leave</code> <code>begin until</code> <code>begin while repeat</code> <code>recurse exit</code></p>
+                <p><code>variable constant value to create allot , @ ! does&gt;</code></p>
+                <p><code>." text"</code> <code>s" text" type</code> <code>emit cr .r</code> <code>( comment )</code> <code>\ comment</code></p>
+                <p><kbd>Tab</kbd> completes, <kbd>↑</kbd> <kbd>↓</kbd> history, <kbd>Esc</kbd> interrupts. Your definitions are kept between visits.</p>
+            </section>
+        </aside>
+    </div>
+
+    <script src="forth.js"></script>
+    <script>
+        (() => {
+            const { Forth, EXAMPLES } = window.ForthCore;
+            const SESSION_KEY = 'jsforth_session';
+
+            const $ = id => document.getElementById(id);
+            const output = $('output');
+            const cmd = $('cmd');
+            const term = $('term');
+
+            const storage = {
+                get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+                remove(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+                keys() { try { return Object.keys(localStorage); } catch (e) { return []; } }
+            };
+
+            // ---- output ----
+
+            const MAX_NODES = 3000;
+            let scrollQueued = false;
+
+            function write(text, kind) {
+                if (kind === 'cls') { output.textContent = ''; return; }
+                if (!text) return;
+                const last = output.lastChild;
+                if (last && (last.className || '') === (kind || '')) {
+                    last.textContent += text;
+                } else {
+                    const span = document.createElement('span');
+                    if (kind) span.className = kind;
+                    span.textContent = text;
+                    output.appendChild(span);
+                    while (output.childNodes.length > MAX_NODES) output.removeChild(output.firstChild);
+                }
+                scrollQueued = true;
+            }
+
+            function flushScroll() {
+                if (scrollQueued) output.scrollTop = output.scrollHeight;
+                scrollQueued = false;
+            }
+
+            const forth = new Forth(write, storage);
+            forth.onDefine = () => storage.set(SESSION_KEY, JSON.stringify(forth.defLines));
+
+            // ---- status ----
+
+            function renderStack() {
+                const s = forth.stack;
+                const box = $('stack');
+                box.textContent = '';
+                const shown = s.slice(-12);
+                shown.forEach((v, k) => {
+                    const d = document.createElement('div');
+                    const depth = shown.length - 1 - k;
+                    const val = document.createElement('span');
+                    val.textContent = forth.fmt(v);
+                    const tag = document.createElement('i');
+                    tag.textContent = depth === 0 ? 'top' : depth;
+                    d.append(val, tag);
+                    box.appendChild(d);
+                });
+                if (!s.length || s.length > shown.length) {
+                    const d = document.createElement('div');
+                    d.className = 'empty';
+                    d.textContent = s.length ? `… ${s.length - shown.length} more` : 'empty';
+                    box.prepend(d);
+                }
+                $('base').textContent = { 10: 'DEC', 16: 'HEX', 2: 'BIN' }[forth.base] || 'BASE ' + forth.base;
+                const busy = forth.state === 'running';
+                term.classList.toggle('busy', busy);
+                $('prompt').textContent = forth.compiling ? ']' : '>';
+                cmd.placeholder = busy ? 'running… Esc to interrupt'
+                    : forth.compiling ? `compiling ${forth.compiling.name}… finish with ;`
+                    : 'type Forth here, e.g. 2 3 + .';
+            }
+
+            // ---- execution ----
+
+            let pumping = false;
+            function pump() {
+                if (pumping) return;
+                pumping = true;
+                const step = () => {
+                    const state = forth.runSlice(15);
+                    flushScroll();
+                    renderStack();
+                    if (state === 'running') setTimeout(step, 0);
+                    else pumping = false;
+                };
+                step();
+            }
+
+            function submit(text) {
+                if (forth.column > 0) forth.newline();
+                forth.emit(text + ' ', 'in');
+                forth.enter(text);
+                pump();
+            }
+
+            // ---- input ----
+
+            const history = [];
+            let historyPos = 0;
+
+            cmd.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const text = cmd.value;
+                    cmd.value = '';
+                    $('hint').textContent = '';
+                    if (text.trim() && history[history.length - 1] !== text) history.push(text);
+                    historyPos = history.length;
+                    submit(text);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (historyPos > 0) cmd.value = history[--historyPos];
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    historyPos = Math.min(history.length, historyPos + 1);
+                    cmd.value = history[historyPos] || '';
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    complete();
+                } else if (e.key.toLowerCase() === 'c' && e.ctrlKey && forth.state === 'running' && cmd.selectionStart === cmd.selectionEnd) {
+                    e.preventDefault();
+                    stop();
+                }
+            });
+
+            cmd.addEventListener('input', () => { $('hint').textContent = ''; });
+
+            /** Complete the word before the cursor; list choices when ambiguous. */
+            function complete() {
+                const pos = cmd.selectionStart;
+                const before = cmd.value.slice(0, pos);
+                const m = /(\S+)$/.exec(before);
+                if (!m) return;
+                const matches = forth.complete(m[1]);
+                if (!matches.length) { $('hint').textContent = 'no matches'; return; }
+                let common = matches[0];
+                for (const w of matches) while (!w.startsWith(common)) common = common.slice(0, -1);
+                const insert = matches.length === 1 ? matches[0] + ' ' : common;
+                cmd.value = before.slice(0, before.length - m[1].length) + insert + cmd.value.slice(pos);
+                const p = pos - m[1].length + insert.length;
+                cmd.setSelectionRange(p, p);
+                $('hint').textContent = matches.length > 1 ? matches.join('  ') : '';
+            }
+
+            cmd.addEventListener('paste', e => {
+                const text = e.clipboardData.getData('text');
+                if (!text.includes('\n')) return;
+                e.preventDefault();
+                for (const line of text.split(/\r?\n/)) if (line.trim()) submit(line);
+            });
+
+            function stop() {
+                forth.interrupt();
+                flushScroll();
+                renderStack();
+            }
+
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') stop(); });
+            $('stopBtn').addEventListener('click', () => { stop(); cmd.focus(); });
+
+            term.addEventListener('click', () => {
+                if (!window.getSelection().toString()) cmd.focus();
+            });
+
+            document.querySelectorAll('[data-run]').forEach(b => b.addEventListener('click', () => {
+                submit(b.dataset.run);
+                cmd.focus();
+            }));
+
+            // ---- examples ----
+
+            for (const [id, ex] of Object.entries(EXAMPLES)) {
+                const b = document.createElement('button');
+                b.textContent = ex.title;
+                b.addEventListener('click', () => loadExample(id));
+                $('examples').appendChild(b);
+            }
+
+            function loadExample(id) {
+                const ex = EXAMPLES[id];
+                if (forth.state === 'running') forth.interrupt();
+                if (forth.column > 0) forth.newline();
+                forth.emit(ex.src + '\n', 'in');
+                forth.evaluate(ex.src.split('\n'));
+                pump();
+                forth.emit(`${ex.title} loaded. Press Enter to try it.\n`, 'note');
+                cmd.value = ex.try;
+                cmd.focus();
+                flushScroll();
+            }
+
+            // ---- boot ----
+
+            write('JSForth 2.0  ', 'note');
+            write('Type ', 'ok');
+            write('help', 'in');
+            write(' to get started, or pick an example.\n', 'ok');
+            try {
+                const saved = JSON.parse(storage.get(SESSION_KEY) || '[]');
+                if (Array.isArray(saved) && saved.length) {
+                    forth.evaluate(saved);
+                    pump();
+                    const n = [...forth.dict.values()].filter(w => !w.builtin).length;
+                    write(`Restored ${n} words from your last session. `, 'ok');
+                    write('cold', 'in');
+                    write(' starts fresh.\n', 'ok');
+                }
+            } catch (e) { /* ignore a corrupt session */ }
+            renderStack();
+            flushScroll();
+            cmd.focus();
+        })();
+    </script>
+</body>
 </html>
