@@ -277,6 +277,7 @@
                     <button data-run="page">PAGE</button>
                     <button data-run="help">HELP</button>
                     <button id="stopBtn">STOP</button>
+                    <button id="shareBtn" title="Copy a link that recreates your words">SHARE</button>
                 </div>
             </section>
 
@@ -337,7 +338,8 @@
             }
 
             const forth = new Forth(write, storage);
-            forth.onDefine = () => storage.set(SESSION_KEY, JSON.stringify(forth.defLines));
+            const saveSession = () => storage.set(SESSION_KEY, JSON.stringify(forth.defLines));
+            forth.onDefine = saveSession;
 
             // ---- status ----
 
@@ -490,23 +492,97 @@
                 flushScroll();
             }
 
+            // ---- share by link ----
+
+            /** Text -> URL-safe string, deflated when the browser supports it. */
+            async function packText(text) {
+                let bytes = new TextEncoder().encode(text);
+                let tag = 'b';
+                if (window.CompressionStream) {
+                    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+                    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+                    tag = 'z';
+                }
+                let bin = '';
+                bytes.forEach(b => { bin += String.fromCharCode(b); });
+                return tag + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            }
+
+            async function unpackText(packed) {
+                const bin = atob(packed.slice(1).replace(/-/g, '+').replace(/_/g, '/'));
+                let bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+                if (packed[0] === 'z') {
+                    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+                    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+                }
+                return new TextDecoder().decode(bytes);
+            }
+
+            $('shareBtn').addEventListener('click', async () => {
+                if (forth.column > 0) forth.newline();
+                if (!forth.defLines.length) {
+                    write('Nothing to share yet: define some words first.\n', 'note');
+                    flushScroll();
+                    return;
+                }
+                const url = location.href.split('#')[0] + '#src=' + await packText(forth.defLines.join('\n'));
+                window.history.replaceState(null, '', url);
+                try {
+                    await navigator.clipboard.writeText(url);
+                    write('Link copied to the clipboard.\n', 'note');
+                } catch (e) {
+                    write('The share link is in the address bar.\n', 'note');
+                }
+                flushScroll();
+                cmd.focus();
+            });
+
+            /** Load words from a #src= link into a fresh dictionary. */
+            async function loadShared() {
+                const m = /[#&]src=([A-Za-z0-9_-]+)/.exec(location.hash);
+                if (!m) return false;
+                window.history.replaceState(null, '', location.href.split('#')[0]);
+                try {
+                    const lines = (await unpackText(m[1])).split('\n');
+                    if (forth.state === 'running') forth.interrupt();
+                    forth.cold();
+                    write('', 'cls');
+                    write('Loading shared words:\n', 'note');
+                    write(lines.join('\n') + '\n', 'in');
+                    forth.evaluate(lines);
+                    pump();
+                } catch (e) {
+                    write('That share link is damaged.\n', 'err');
+                }
+                flushScroll();
+                return true;
+            }
+
+            window.addEventListener('hashchange', loadShared);
+
             // ---- boot ----
 
             write('JSForth 2.0  ', 'note');
             write('Type ', 'ok');
             write('help', 'in');
             write(' to get started, or pick an example.\n', 'ok');
-            try {
-                const saved = JSON.parse(storage.get(SESSION_KEY) || '[]');
-                if (Array.isArray(saved) && saved.length) {
-                    forth.evaluate(saved);
-                    pump();
-                    const n = [...forth.dict.values()].filter(w => !w.builtin).length;
-                    write(`Restored ${n} words from your last session. `, 'ok');
-                    write('cold', 'in');
-                    write(' starts fresh.\n', 'ok');
-                }
-            } catch (e) { /* ignore a corrupt session */ }
+            loadShared().then(shared => { if (!shared) restoreSession(); });
+
+            function restoreSession() {
+                try {
+                    const saved = JSON.parse(storage.get(SESSION_KEY) || '[]');
+                    if (Array.isArray(saved) && saved.length) {
+                        forth.evaluate(saved);
+                        pump();
+                        const n = [...forth.dict.values()].filter(w => !w.builtin).length;
+                        write(`Restored ${n} words from your last session. `, 'ok');
+                        write('cold', 'in');
+                        write(' starts fresh.\n', 'ok');
+                    }
+                } catch (e) { /* ignore a corrupt session */ }
+                flushScroll();
+            }
+
             renderStack();
             flushScroll();
             cmd.focus();

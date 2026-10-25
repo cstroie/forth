@@ -58,6 +58,7 @@ How it behaves:
 - `Tab` completes word names. `↑`/`↓` scroll through history. `Esc` or `Ctrl+C` interrupts a runaway word: the interpreter runs in time slices, so `begin again` can't freeze the page.
 - Pasting several lines enters each one in turn.
 - Every definition you make is kept in localStorage and replayed on your next visit. `cold` starts from scratch.
+- **SHARE** copies a link with your definitions packed into the address. Opening the link recreates those words in a fresh dictionary.
 
 ## Layout
 
