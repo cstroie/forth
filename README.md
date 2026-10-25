@@ -1,5 +1,7 @@
 # JSForth
 
+[![test](https://github.com/cstroie/forth/actions/workflows/test.yml/badge.svg)](https://github.com/cstroie/forth/actions/workflows/test.yml)
+
 A small Forth that runs in the browser, close to the standard. Colon definitions are compiled, there's a real return stack and proper control flow, and the terminal shows the data stack live. There are no dependencies and no build step.
 
 **Live demo: https://cstroie.github.io/forth/**
@@ -69,6 +71,14 @@ How it behaves:
   f.runSlice();          // prints "144  ok"
   ```
 - `index.html` holds the terminal user interface.
+
+## Tests
+
+```
+node --test
+```
+
+The tests run the interpreter core under Node (version 18 or later) with no dependencies. GitHub Actions runs them on every push.
 
 ## History
 
